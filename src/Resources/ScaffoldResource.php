@@ -5,27 +5,40 @@ namespace Solutionforest\FilamentScaffold\Resources;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Set;
-use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
+use Filament\Notifications\Notification;
 use Solutionforest\FilamentScaffold\Resources\ScaffoldResource\Pages;
+use Illuminate\Support\Str;
+use Symfony\Component\Process\Process;
 
-if (! defined('STDIN')) {
+
+if (!defined('STDIN')) {
     define('STDIN', fopen('php://stdin', 'r'));
 }
 
 class ScaffoldResource extends Resource
 {
-    protected static ?string $navigationIcon = 'heroicon-o-cube-transparent';
 
     /********************************************
-     * Group name in the 'navigation bar'
-     * @var string|null
-     */
-    protected static ?string $navigationGroup = 'System';
+     * !! Controls the navigation settings like:
+     * GROUP, ICON & SORT
+     * 
+     * configure: navigation.php
+     ********************************************/
+    use \App\Traits\HasNavigationConfig;
+
+    // protected static ?string $navigationIcon = 'fas-layer-group';
+
+    // /********************************************
+    //  * Group name in the 'navigation bar'
+    //  * @var string|null
+    //  */
+    // protected static ?string $navigationGroup = 'System';
+    // protected static ?int $navigationSort = 99;
+
 
     /********************************************
      * Plural label for the resource
@@ -40,7 +53,9 @@ class ScaffoldResource extends Resource
      * @var string|null
      */
     protected static ?string $modelLabel = 'Scaffold';
+    protected static bool $shouldRegisterNavigation = true;
 
+    
     public static function form(Form $form): Form
     {
         return $form
@@ -49,7 +64,7 @@ class ScaffoldResource extends Resource
                 /********************************************
                  * TABLE NAME, MODEL NAME, RESOURCE NAME
                  */
-                Forms\Components\Section::make('Table & Resource Information')
+                Forms\Components\Card::make('Table & Resource Information')
                     ->schema([
                         Forms\Components\Grid::make(2)
                             ->schema([
@@ -69,22 +84,16 @@ class ScaffoldResource extends Resource
                                     ->options(self::getAllTableNames())
                                     ->reactive()
                                     ->afterStateUpdated(function (Set $set, $state) {
-                                        $allTables = self::getAllTableNames();
-
-                                        if (! isset($allTables[$state])) {
-                                            return;
-                                        }
-
-                                        $tableName = $allTables[$state];
+                                        $tableName = self::getAllTableNames()[$state];
                                         $tableColumns = self::getTableColumns($tableName);
-                                        $modelName = Str::singular(str_replace('_', '', ucwords($tableName, '_')));
+                                        $modelName = str_replace('_', '', ucwords($tableName, '_'));
                                         $set('Table Name', $tableName);
                                         $set('Model', 'app\\Models\\' . $modelName);
                                         $set('Resource', 'app\\Filament\\Resources\\' . $modelName . 'Resource');
                                         $set('Table', $tableColumns);
                                     }),
                             ]),
-
+    
                         Forms\Components\Grid::make(2)
                             ->schema([
                                 Forms\Components\TextInput::make('Model')
@@ -96,32 +105,56 @@ class ScaffoldResource extends Resource
                             ]),
                     ])
                     ->columnSpan(2),
-
+    
                 /********************************************
                  * GENERATION OPTIONS
                  */
-                Forms\Components\Section::make('Generation Options')
+                Forms\Components\Card::make('Generation Options')
                     ->schema([
-                        Forms\Components\Checkbox::make('Create Resource')
-                            ->default(true),
-                        Forms\Components\Checkbox::make('Create Model')
-                            ->default(true),
-                        Forms\Components\Checkbox::make('Simple Resource')
+                        Forms\Components\Checkbox::make('create_resource')
+                            ->default(true)
+                            ->hintIcon('heroicon-m-question-mark-circle', tooltip: 'Generate Filament resource files (list, create, edit pages)'),
+                            
+                        Forms\Components\Checkbox::make('create_model')
+                            ->default(true)
+                            ->hintIcon('heroicon-m-question-mark-circle', tooltip: 'Create an Eloquent model for the table'),
+                            
+                        Forms\Components\Checkbox::make('simple_resource')
+                            ->default(true)
+                            ->label('Simple Resource')
+                            ->hintIcon('heroicon-m-question-mark-circle', tooltip: 'Generate modal-based forms instead of separate pages'),
+                            
+                        Forms\Components\Checkbox::make('create_migration')
+                            ->default(true)
+                            ->hintIcon('heroicon-m-question-mark-circle', tooltip: 'Create migration file (only needed for new tables)'),
+                            
+                        Forms\Components\Checkbox::make('create_factory')
+                            ->default(true)
+                            ->hintIcon('heroicon-m-question-mark-circle', tooltip: 'Generate factory for test/demo data generation'),
+                            
+                        Forms\Components\Checkbox::make('create_controller')
                             ->default(false)
-                            ->label('Simple (Modal Type) Resource'),
-                        Forms\Components\Checkbox::make('Create Migration'),
-                        Forms\Components\Checkbox::make('Create Factory'),
-                        Forms\Components\Checkbox::make('Create Controller'),
-                        Forms\Components\Checkbox::make('Run Migrate'),
-                        Forms\Components\Checkbox::make('Create Route'),
-                        Forms\Components\Checkbox::make('Create Policy')
-                            ->default(false)
-                            ->hidden(fn () => ! class_exists(\BezhanSalleh\FilamentShield\FilamentShield::class)),
+                            ->hintIcon('heroicon-m-question-mark-circle', tooltip: 'Create traditional Laravel controller'),
+                            
+                        Forms\Components\Checkbox::make('run_migrate')
+                            ->default(true)
+                            ->hintIcon('heroicon-m-question-mark-circle', tooltip: 'Automatically run migration after creation')
+                            ->hidden(fn (Forms\Get $get) => !$get('create_migration')),
+                            
+                        Forms\Components\Checkbox::make('create_route')
+                            ->hintIcon('heroicon-m-question-mark-circle', tooltip: 'Add basic routes to routes/web.php'),
+                            // ->hidden(fn (Forms\Get $get) => !$get('create_controller')),
+                            
+                        Forms\Components\Checkbox::make('create_policy')
+                            ->default(true)
+                            ->hintIcon('heroicon-m-question-mark-circle', tooltip: 'Generate authorization policy (requires Filament Shield)')
+                            ->hidden(fn () => !class_exists(\BezhanSalleh\FilamentShield\FilamentShield::class)),
+                            
                         Forms\Components\Checkbox::make('create_api')
                             ->label('Create API')
-                            ->default(false)
-                            ->hidden(fn () => !class_exists(\Rupadana\ApiService\ApiService::class)),
-
+                            ->default(true)
+                            ->hintIcon('heroicon-m-question-mark-circle', tooltip: 'Generate API endpoints (requires API Service)')
+                            ->hidden(fn () => !class_exists(\Rupadana\ApiService\ApiService::class))
                     ])
                     ->columns(2)
                     ->columnSpan(1),
@@ -129,7 +162,7 @@ class ScaffoldResource extends Resource
                 /********************************************
                  * TABLE STRUCTURE
                  */
-                Forms\Components\Section::make('Table Structure')
+                Forms\Components\Card::make('Table Structure')
                     ->schema([
                         Forms\Components\Repeater::make('Table')
                             ->schema([
@@ -171,7 +204,8 @@ class ScaffoldResource extends Resource
                                     ->reactive(),
                                 Forms\Components\Checkbox::make('nullable')
                                     ->inline(false)
-                                    ->default(fn ($record) => $record['nullable'] ?? false),
+                                    ->default(true),
+                                    // ->default(fn ($record) => $record['nullable'] ?? false),
                                 Forms\Components\Select::make('key')
                                     ->default('')
                                     ->options([
@@ -187,29 +221,31 @@ class ScaffoldResource extends Resource
                                     ->autosize()
                                     ->default(fn ($record) => $record['comment'] ?? ''),
                             ])
-                            ->columns(7),
+                            ->columns(7)
                     ])
                     ->columnSpan('full'),
-
+    
                 /********************************************
                  * MIGRATION ADDITIONAL FEATURES
                  */
-                Forms\Components\Section::make('Migration Additional Features')
+                Forms\Components\Card::make('Migration Additional Features')
                     ->schema([
                         Forms\Components\Checkbox::make('Created_at & Updated_at')
                             ->label('Created_at & Updated_at timestamps')
                             ->default(true)
                             ->inline(),
-                        Forms\Components\Checkbox::make('Soft Delete')
-                            ->label('Soft Delete (recycle bin)')
+                        Forms\Components\Checkbox::make('soft_delete')
+                            ->label('soft_delete (recycle bin)')
                             ->default(true)
                             ->inline(),
+
                     ])
-                    ->columns(2)
+                    ->columns(3)
                     ->columnSpan('full'),
             ])
             ->columns(3);
     }
+
 
     public static function getAllTableNames(): array
     {
@@ -291,8 +327,7 @@ class ScaffoldResource extends Resource
 
     public static function getFileName($path)
     {
-        $normalizedPath = str_replace('\\', '/', $path);
-        $fileNameWithExtension = basename($normalizedPath);
+        $fileNameWithExtension = basename($path);
         $fileName = pathinfo($fileNameWithExtension, PATHINFO_FILENAME);
 
         return $fileName;
@@ -315,7 +350,7 @@ class ScaffoldResource extends Resource
         /********************************************
          * MIGRATION FILE
          */
-        if ($data['Create Migration']) {
+        if ($data['create_migration'] ?? false) {
             Artisan::call('make:migration', [
                 'name' => 'create_' . $data['Table Name'] . '_table',
                 '--no-interaction' => true,
@@ -325,10 +360,9 @@ class ScaffoldResource extends Resource
                 preg_match('/\[([^\]]+)\]/', $output, $matches);
                 $migrationPath = $matches[1] ?? null;
             }
-            self::overwriteMigrationFile($migrationPath, $data);
         }
 
-        if ($data['Create Factory']) {
+        if ($data['create_factory']) {
             Artisan::call('make:factory', [
                 'name' => $data['Table Name'] . 'Factory',
                 '--no-interaction' => true,
@@ -338,23 +372,43 @@ class ScaffoldResource extends Resource
         /********************************************
          * CREATE MODEL
          */
-        if ($data['Create Model']) {
-            Artisan::call('make:model', [
-                'name' => $modelName,
-                '--no-interaction' => true,
-            ]);
-            $output = Artisan::output();
-            if (strpos($output, 'Model') !== false) {
-                preg_match('/\[([^\]]+)\]/', $output, $matches);
-                $modelPath = $matches[1] ?? null;
+        if ($data['create_model'] ?? false) {
+            try {
+                $result = Artisan::call('make:model', [
+                    'name' => $modelName,
+                    '--no-interaction' => true,
+                ]);
+                
+                // Success is indicated by return code 0
+                if ($result !== 0) {
+                    throw new \RuntimeException("Model creation failed with code: " . $result);
+                }
+                
+                $modelPath = app_path('Models/' . $modelName . '.php');
+                if (!file_exists($modelPath)) {
+                    throw new \RuntimeException("Model file was not created at: " . $modelPath);
+                }
+                
+                // Now overwrite with your custom content
+                self::overwriteModelFile($modelPath, $data);
+                
+            } catch (\Exception $e) {
+                Log::error('Model creation error: ' . $e->getMessage());
+                throw $e;
             }
-            self::overwriteModelFile($modelPath, $data);
         }
+
 
         /********************************************
          * CREATE RESOURCE FILE
+         * ! this part is not supported if you have cluster resources
          */
-        if ($data['Create Resource']) {
+        if ($data['create_resource'] ?? false) {
+            Log::info('Starting creation of Filament resource.', [
+                'resourceName' => $resourceName,
+                'simpleResource' => $data['simple_resource'] ?? false,
+            ]);
+
             $command = [
                 'name' => $resourceName,
                 '--generate' => true,
@@ -366,21 +420,38 @@ class ScaffoldResource extends Resource
             /**************************
              * --simple (modal type)
              */
-            if ($data['Simple Resource']) {
+            if ($data['simple_resource'] ?? false) {
                 $command['--simple'] = true;
             }
 
-            Artisan::call('make:filament-resource', $command);
-            $output = Artisan::output();
-            preg_match('/\[([^\]]+)\]/', $output, $matches);
-            $resourcePath = $matches[1] ?? null;
-            self::overwriteResourceFile($resourcePath, $data);
+            try {
+                Artisan::call('make:filament-resource', $command);
+                $output = Artisan::output();
+
+                Log::info('Filament resource command output:', ['output' => $output]);
+
+                if (preg_match('/\[([^\]]+)\]/', $output, $matches)) {
+                    $resourcePath = $matches[1];
+                    Log::info('Resource file path detected from output.', ['resourcePath' => $resourcePath]);
+                } else {
+                    Log::warning('Could not detect resource file path from command output.');
+                    $resourcePath = null;
+                }
+            } catch (\Exception $e) {
+                Log::error('Error while creating Filament resource.', [
+                    'exception_message' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                    'command_args' => $command,
+                ]);
+                throw $e;
+            }
         }
+
 
         /********************************************
          * CREATE CONTROLLER
          */
-        if ($data['Create Controller']) {
+        if ($data['create_controller'] ?? false) {
             Artisan::call('make:controller', [
                 'name' => $data['Table Name'] . 'Controller',
                 '--model' => $modelName,
@@ -390,63 +461,64 @@ class ScaffoldResource extends Resource
             $output = Artisan::output();
             preg_match('/\[([^\]]+)\]/', $output, $matches);
             $controllerPath = $matches[1] ?? null;
-            self::overwriteControllerFile($controllerPath, $data);
         }
 
         /********************************************
          * POLICY FILE (For Permissions)
          */
-        if (class_exists(\BezhanSalleh\FilamentShield\FilamentShield::class)) {
-            /** @phpstan-ignore-next-line */
-            $url = \BezhanSalleh\FilamentShield\Resources\RoleResource::getUrl();
-            if ($data['Create Policy']) {
-                $modelName = self::getFileName($data['Model']);
-                Artisan::call('make:policy', [
-                    'name' => $modelName . 'Policy',
-                    '--model' => $modelName,
-                    '--no-interaction' => true,
-                ]);
-                $output = Artisan::output();
-                if (strpos($output, 'Policy') !== false) {
-                    preg_match('/\[([^\]]+)\]/', $output, $matches);
-                    $policyPath = $matches[1] ?? null;
-                    if ($policyPath) {
-                        self::updatePolicyFile($policyPath, $modelName);
-                        // Log::info("Policy file created and updated at: $policyPath");
-                        /********************************************
-                         * SUCCESS NOTIFICATION
-                         */
-                        Notification::make()
-                            ->success()
-                            ->persistent()
-                            ->title('Scaffold with Policy Created Successfully!')
-                            ->body('A new policy file has been successfully created for your model. Please configure the permissions for the new policy.')
-                            ->icon('heroicon-o-shield-check')
-                            ->actions([
-                                \Filament\Notifications\Actions\Action::make('view')
-                                    ->label('Configure Permissions')
-                                    ->button()
-                                    ->url($url, shouldOpenInNewTab: true),
-                                \Filament\Notifications\Actions\Action::make('close')
-                                    ->color('gray')
-                                    ->close(),
-                            ])
-                            ->send();
-                    }
+        if ($data['create_policy'] ?? false) {
+            $modelName = self::getFileName($data['Model']);
+            Artisan::call('make:policy', [
+                'name' => $modelName . 'Policy',
+                '--model' => $modelName,
+                '--no-interaction' => true,
+            ]);
+            $output = Artisan::output();
+            if (strpos($output, 'Policy') !== false) {
+                preg_match('/\[([^\]]+)\]/', $output, $matches);
+                $policyPath = $matches[1] ?? null;
+                if ($policyPath) {
+                    self::updatePolicyFile($policyPath, $modelName);
+                    // Log::info("Policy file created and updated at: $policyPath");
+                    /********************************************
+                     * SUCCESS NOTIFICATION
+                     */
+                    Notification::make()
+                        ->success()
+                        ->persistent()
+                        ->title('Scaffold with Policy Created Successfully!')
+                        ->body('A new policy file has been successfully created for your model. Please configure the permissions for the new policy.')
+                        ->icon('heroicon-o-shield-check')
+                        ->actions([
+                            \Filament\Notifications\Actions\Action::make('view')
+                                ->label('Configure Permissions')
+                                ->button()
+                                ->url(\BezhanSalleh\FilamentShield\Resources\RoleResource::getUrl(), shouldOpenInNewTab: true),
+                            \Filament\Notifications\Actions\Action::make('close')
+                                ->color('gray')
+                                ->close(),
+                        ])
+                        ->send()
+                        ->sendToDatabase(\App\Filament\Resources\VariableStorerResource::getCurrentLoggedUserNotifRecipient());
                 }
             }
-        } else {
-            $url = '/default-url';
         }
+
+
 
         /********************************************
          * EXECUTE THE CREATING OF ROUTE
-         * IF Create Route is Check
+         * IF create_route is Check
          */
-        if ($data['Create Route']) {
+        if ($data['create_route'] ?? false) {
             $controllerName = self::getFileName($controllerPath);
             self::addRoutes($data, $controllerName);
         }
+
+        self::overwriteResourceFile($resourcePath, $data);
+        self::overwriteMigrationFile($migrationPath, $data);
+        self::overwriteModelFile($modelPath, $data);
+        self::overwriteControllerFile($controllerPath, $data);
 
         /********************************************
          * AFTER FILE/DB GENERATION, RUN THIS ARTISAN COMMANDS:
@@ -458,7 +530,7 @@ class ScaffoldResource extends Resource
             'route:cache',
             'route:clear',
             'icons:cache',
-            'filament:cache-components',
+            'filament:cache-components'
         ];
 
         $commandErrors = [];
@@ -466,9 +538,9 @@ class ScaffoldResource extends Resource
         foreach ($commands as $command) {
             $fullCommand = "php artisan $command";
             $descriptorspec = [
-                0 => ['pipe', 'r'], // stdin
-                1 => ['pipe', 'w'], // stdout
-                2 => ['pipe', 'w'],  // stderr
+                0 => ["pipe", "r"], //stdin
+                1 => ["pipe", "w"], //stdout
+                2 => ["pipe", "w"]  //stderr
             ];
 
             $process = proc_open($fullCommand, $descriptorspec, $pipes, base_path());
@@ -484,7 +556,7 @@ class ScaffoldResource extends Resource
                 if ($return_value !== 0) {
                     Log::error("Error running artisan command: $fullCommand", [
                         'error' => $error,
-                        'output' => $output,
+                        'output' => $output
                     ]);
                     $commandErrors[] = $fullCommand;
                 }
@@ -492,9 +564,8 @@ class ScaffoldResource extends Resource
         }
 
 
-        /**
-         * Creates an API using the filament-api-service package if it is installed.
-         * See: https://github.com/rupadana/filament-api-service
+        /********************************************
+         * Create API with https://github.com/rupadana/filament-api-service IF installed
          */
         if ($data['create_api'] && class_exists(\Rupadana\ApiService\ApiService::class)) {
             $resourcePath = $data['Resource'] ?? null;
@@ -530,7 +601,8 @@ class ScaffoldResource extends Resource
                                     <small><pre>" . e($output) . "</pre></small>
                                 "))
                                 ->icon('heroicon-o-code-bracket')
-                                ->send();
+                                ->send()
+                                ->sendToDatabase(\App\Filament\Resources\VariableStorerResource::getCurrentLoggedUserNotifRecipient());
                         } else {
                             Notification::make()
                                 ->warning()
@@ -541,28 +613,32 @@ class ScaffoldResource extends Resource
                                     <small><pre>" . e($output) . "</pre></small>
                                 "))
                                 ->icon('heroicon-o-exclamation-triangle')
-                                ->send();
+                                ->send()
+                                ->sendToDatabase(\App\Filament\Resources\VariableStorerResource::getCurrentLoggedUserNotifRecipient());
                         }
                     } catch (\Throwable $e) {
                         Notification::make()
                             ->danger()
                             ->title('API Service Generation Failed')
                             ->body("Unexpected error: " . $e->getMessage())
-                            ->send();
+                            ->send()
+                            ->sendToDatabase(\App\Filament\Resources\VariableStorerResource::getCurrentLoggedUserNotifRecipient());
                     }
                 } else {
                     Notification::make()
                         ->danger()
                         ->title('Resource Class Not Found')
                         ->body("The class `{$resourceClass}` does not exist. Please generate the resource first.")
-                        ->send();
+                        ->send()
+                        ->sendToDatabase(\App\Filament\Resources\VariableStorerResource::getCurrentLoggedUserNotifRecipient());
                 }
             } else {
                 Notification::make()
                     ->danger()
                     ->title('Missing Resource Input')
                     ->body('The Resource input is required to generate the API service.')
-                    ->send();
+                    ->send()
+                    ->sendToDatabase(\App\Filament\Resources\VariableStorerResource::getCurrentLoggedUserNotifRecipient());
             }
         }
 
@@ -587,19 +663,21 @@ class ScaffoldResource extends Resource
                 //         ->color('gray')
                 //         ->close(),
                 // ])
-                ->send();
+                ->send()
+                ->sendToDatabase(\App\Filament\Resources\VariableStorerResource::getCurrentLoggedUserNotifRecipient());
         } else {
             /********************************************
              * ERROR
              */
             Notification::make()
-                ->title('Error running commands')
-                ->body('Check logs for more details.')
+                ->title("Error running commands")
+                ->body("Check logs for more details.")
                 ->danger()
                 ->send();
         }
 
     }
+
 
     public static function overwriteResourceFile($resourceFile, $data)
     {
@@ -706,7 +784,7 @@ class ScaffoldResource extends Resource
 
             file_put_contents($filePath, $content);
         }
-        if ($data['Run Migrate'] == true) {
+        if ($data['run_migrate'] == true) {
             Artisan::call('migrate');
         }
     }
@@ -722,7 +800,7 @@ class ScaffoldResource extends Resource
             $fields[] = '$table->timestamps()';
         }
 
-        if ($data['Soft Delete'] == true) {
+        if ($data['soft_delete'] == true) {
             $fields[] = '$table->softDeletes()';
         }
 
@@ -757,37 +835,57 @@ class ScaffoldResource extends Resource
 
     public static function overwriteModelFile($filePath, $data)
     {
-        $column = self::getColumn($data);
-
-        if (file_exists($filePath)) {
-            $content = file_get_contents($filePath);
-            $useSoftDel = <<<EOD
-                use Illuminate\Database\Eloquent\Model;
-                use Illuminate\Database\Eloquent\SoftDeletes;
-                EOD;
-
-            $chooseTable = <<<EOD
-                use HasFactory;
-                    protected \$table = '{$data['Table Name']}';
-                    protected \$fillable = $column;
-                EOD;
-
-            $withSoftdel = <<<EOD
-                use HasFactory;
-                    use SoftDeletes;
-                    protected \$table = '{$data['Table Name']}';
-                    protected \$fillable = $column;
-                EOD;
-
-            if ($data['Soft Delete'] == true) {
-                $content = preg_replace('/use Illuminate\\\\Database\\\\Eloquent\\\\Model;/s', $useSoftDel, $content);
-                $content = preg_replace('/use HasFactory;/s', $withSoftdel, $content);
-            } else {
-                $content = preg_replace('/use HasFactory;/s', $chooseTable, $content);
-            }
-            file_put_contents($filePath, $content);
+        $columns = self::getColumn($data);
+        $modelName = self::getFileName($data['Model']);
+        $tableName = $data['Table Name'] ?? '';
+        
+        $modelContent = "<?php\n\nnamespace App\Models;\n\n";
+        
+        // SoftDeletes trait if needed
+        if ($data['soft_delete'] ?? false) {
+            $modelContent .= "use Illuminate\Database\Eloquent\SoftDeletes;\n";
         }
+        
+        // Add FilamentShield trait use if needed
+        $useShieldTrait = ($data['create_policy'] ?? false) && 
+                        class_exists(\BezhanSalleh\FilamentShield\FilamentShield::class);
+        
+        if ($useShieldTrait) {
+            $modelContent .= "use BezhanSalleh\FilamentShield\Traits\HasPanelShield;\n";
+        }
+        
+        $modelContent .= "use Illuminate\Database\Eloquent\Factories\HasFactory;\n";
+        $modelContent .= "use Illuminate\Database\Eloquent\Model;\n\n";
+        $modelContent .= "class {$modelName} extends Model\n";
+        $modelContent .= "{\n";
+        $modelContent .= "    use HasFactory;\n";
+        
+        if ($data['soft_delete'] ?? false) {
+            $modelContent .= "    use SoftDeletes;\n";
+        }
+        
+        if ($useShieldTrait) {
+            $modelContent .= "    use HasPanelShield;\n";
+        }
+        
+        $modelContent .= "\n";
+        
+        // Add table name
+        if ($tableName) {
+            $modelContent .= "    protected \$table = '{$tableName}';\n";
+        }
+        
+        // Add guard_name if using Shield
+        if ($useShieldTrait) {
+            $modelContent .= "    protected \$guard_name = 'web';\n";
+        }
+        
+        $modelContent .= "    protected \$fillable = {$columns};\n";
+        $modelContent .= "}\n";
+        
+        file_put_contents($filePath, $modelContent);
     }
+
 
     public static function getColumn($data)
     {
@@ -816,9 +914,6 @@ class ScaffoldResource extends Resource
 
     }
 
-    /********************************************
-     * GENERATE ROUTE, IF ALLOWED
-     */
     public static function addRoutes($data, $controllerName)
     {
         $filePath = base_path('routes\web.php');
@@ -843,26 +938,22 @@ class ScaffoldResource extends Resource
         }
     }
 
-    /********************************************
-     * CREATE POLICY FILE, IF THERE'S A FilamentShield
-     */
-    public static function updatePolicyFile($filePath, $modelName)
-    {
+    public static function updatePolicyFile($filePath, $modelName) {
 
         // --- Check if FilamentShield is installed
-        if (! class_exists(\BezhanSalleh\FilamentShield\FilamentShield::class)) {
+        if (!class_exists(\BezhanSalleh\FilamentShield\FilamentShield::class)) {
             return;
         }
-
+    
         if (file_exists($filePath)) {
             $content = file_get_contents($filePath);
-
+            
             $modelFunctionNameVariable = Str::snake(Str::plural($modelName));
             $permissionBase = Str::of($modelName)
                 ->afterLast('\\')
                 ->snake()
                 ->replace('_', '::');
-
+            
             $methodTemplates = [
                 'import_data' => "return \$user->can('import_data_{$permissionBase}');",
                 'download_template_file' => "return \$user->can('download_template_file_{$permissionBase}');",
@@ -877,23 +968,22 @@ class ScaffoldResource extends Resource
                 'forceDelete' => "return \$user->can('force_delete_{$permissionBase}');",
                 'forceDeleteAny' => "return \$user->can('force_delete_any_{$permissionBase}');",
                 'replicate' => "return \$user->can('replicate_{$permissionBase}');",
-                'reorder' => "return \$user->can('reorder_{$permissionBase}');",
+                'reorder' => "return \$user->can('reorder_{$permissionBase}');"
             ];
-
+            
             $newMethods = '';
             foreach ($methodTemplates as $method => $returnStatement) {
-                $methodSignature = "public function {$method}(User \$user" .
-                    (
-                        in_array($method, ['viewAny', 'create', 'deleteAny', 'restoreAny', 'forceDeleteAny', 'reorder', 'import_data', 'download_template_file'])
-                        ? ''
+                $methodSignature = "public function {$method}(User \$user" . 
+                    (in_array($method, ['viewAny', 'create', 'deleteAny', 'restoreAny', 'forceDeleteAny', 'reorder', 'import_data', 'download_template_file']) 
+                        ? "" 
                         : ", {$modelName} \${$modelFunctionNameVariable}"
-                    ) .
-                    '): bool';
-
+                    ) . 
+                    "): bool";
+    
                 $methodBody = "    {\n        {$returnStatement}\n    }";
-
+    
                 $fullMethod = "\n\n    {$methodSignature}\n{$methodBody}";
-
+    
                 // --- Check if the method already exists
                 if (strpos($content, "public function {$method}(") === false) {
                     // Method doesn't exist, add it to newMethods
@@ -905,11 +995,13 @@ class ScaffoldResource extends Resource
                     $content = preg_replace($pattern, $replacement, $content);
                 }
             }
-
+            
             // --- Add new methods inside the class
             $content = preg_replace('/}(\s*)$/', $newMethods . "\n}", $content);
-
+            
             file_put_contents($filePath, $content);
         }
     }
+
+
 }
